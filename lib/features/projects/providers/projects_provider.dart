@@ -1,31 +1,29 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../../features/auth/providers/auth_provider.dart';
 import '../../../shared/models/project_model.dart';
+import '../../../shared/services/demo_data.dart';
 
 // Proyectos destacados para el home
 final highlightedProjectsProvider =
     FutureProvider<List<ProjectModel>>((ref) async {
-  final api = ref.watch(apiServiceProvider);
-  final data = await api.getProjects(highlighted: true);
-  final list = data['data'] as List;
-  return list.map((e) => ProjectModel.fromJson(e as Map<String, dynamic>)).toList();
+  await Future.delayed(const Duration(milliseconds: 600));
+  return DemoData.projects.where((p) => p.isHighlighted).toList();
 });
 
 // Proyectos recientes para el home
 final recentProjectsProvider =
     FutureProvider<List<ProjectModel>>((ref) async {
-  final api = ref.watch(apiServiceProvider);
-  final data = await api.getProjects(page: 1);
-  final list = data['data'] as List;
-  return list.map((e) => ProjectModel.fromJson(e as Map<String, dynamic>)).toList();
+  await Future.delayed(const Duration(milliseconds: 800));
+  return DemoData.projects;
 });
 
 // Proyecto individual por ID
 final projectProvider =
     FutureProvider.family<ProjectModel, String>((ref, id) async {
-  final api = ref.watch(apiServiceProvider);
-  final data = await api.getProject(id);
-  return ProjectModel.fromJson(data);
+  await Future.delayed(const Duration(milliseconds: 400));
+  return DemoData.projects.firstWhere(
+    (p) => p.id == id,
+    orElse: () => DemoData.projects.first,
+  );
 });
 
 // Filtros de búsqueda
@@ -92,56 +90,77 @@ final searchFiltersProvider =
 final searchResultsProvider =
     FutureProvider<List<ProjectModel>>((ref) async {
   final filters = ref.watch(searchFiltersProvider);
-  final api = ref.watch(apiServiceProvider);
+  await Future.delayed(const Duration(milliseconds: 500));
 
-  final data = await api.getProjects(
-    page: filters.page,
-    vertical: filters.vertical,
-    stage: filters.stage,
-    ticket: filters.ticket,
-    province: filters.province,
-    impact: filters.impact,
-    search: filters.query,
-  );
-  final list = data['data'] as List;
-  return list.map((e) => ProjectModel.fromJson(e as Map<String, dynamic>)).toList();
+  var results = DemoData.projects.toList();
+
+  if (filters.query != null && filters.query!.isNotEmpty) {
+    final q = filters.query!.toLowerCase();
+    results = results.where((p) =>
+      p.title.toLowerCase().contains(q) ||
+      p.description.toLowerCase().contains(q) ||
+      p.vertical.toLowerCase().contains(q),
+    ).toList();
+  }
+  if (filters.vertical != null) {
+    results = results.where((p) => p.vertical == filters.vertical).toList();
+  }
+  if (filters.stage != null) {
+    results = results.where((p) => p.stage == filters.stage).toList();
+  }
+  if (filters.ticket != null) {
+    results = results.where((p) => p.ticketSeeking == filters.ticket).toList();
+  }
+  if (filters.province != null) {
+    results = results.where((p) => p.province == filters.province).toList();
+  }
+  if (filters.impact != null) {
+    results = results.where((p) => p.impactFocus.contains(filters.impact)).toList();
+  }
+  return results;
 });
 
 // Favoritos del inversor
 final favoritesProvider =
     FutureProvider<List<ProjectModel>>((ref) async {
-  final api = ref.watch(apiServiceProvider);
-  final data = await api.getFavorites();
-  return data
-      .map((e) => ProjectModel.fromJson(e as Map<String, dynamic>))
-      .toList();
+  await Future.delayed(const Duration(milliseconds: 500));
+  return DemoData.projects.take(3).toList();
 });
 
 // Pipeline del inversor
 final pipelineProvider =
     FutureProvider<List<PipelineEntry>>((ref) async {
-  final api = ref.watch(apiServiceProvider);
-  final data = await api.getPipeline();
-  return data
-      .map((e) => PipelineEntry.fromJson(e as Map<String, dynamic>))
-      .toList();
+  await Future.delayed(const Duration(milliseconds: 600));
+  return DemoData.pipeline;
 });
 
-// Notifier para gestionar el pipeline
+// Notifier para gestionar el pipeline con estado mutable
 class PipelineNotifier extends AsyncNotifier<List<PipelineEntry>> {
   @override
   Future<List<PipelineEntry>> build() async {
-    final api = ref.watch(apiServiceProvider);
-    final data = await api.getPipeline();
-    return data
-        .map((e) => PipelineEntry.fromJson(e as Map<String, dynamic>))
-        .toList();
+    await Future.delayed(const Duration(milliseconds: 600));
+    return List.from(DemoData.pipeline);
   }
 
   Future<void> addProject(String projectId) async {
-    final api = ref.read(apiServiceProvider);
-    await api.addToPipeline(projectId);
-    ref.invalidateSelf();
+    final project = DemoData.projects.firstWhere(
+      (p) => p.id == projectId,
+      orElse: () => DemoData.projects.first,
+    );
+    final current = state.value ?? [];
+    final already = current.any((e) => e.projectId == projectId);
+    if (already) return;
+
+    final newEntry = PipelineEntry(
+      id: 'pipe_${DateTime.now().millisecondsSinceEpoch}',
+      investorId: 'investor_001',
+      projectId: projectId,
+      project: project,
+      stage: PipelineStage.discovered,
+      addedAt: DateTime.now(),
+      updatedAt: DateTime.now(),
+    );
+    state = AsyncValue.data([...current, newEntry]);
   }
 
   Future<void> updateStage(
@@ -149,13 +168,28 @@ class PipelineNotifier extends AsyncNotifier<List<PipelineEntry>> {
     PipelineStage stage, {
     String? notes,
   }) async {
-    final api = ref.read(apiServiceProvider);
-    await api.updatePipelineStage(
-      entryId,
-      stage.name,
-      notes: notes,
-    );
-    ref.invalidateSelf();
+    final current = state.value ?? [];
+    final updated = current.map((e) {
+      if (e.id == entryId) {
+        return PipelineEntry(
+          id: e.id,
+          investorId: e.investorId,
+          projectId: e.projectId,
+          project: e.project,
+          stage: stage,
+          notes: notes ?? e.notes,
+          addedAt: e.addedAt,
+          updatedAt: DateTime.now(),
+        );
+      }
+      return e;
+    }).toList();
+    state = AsyncValue.data(updated);
+  }
+
+  Future<void> removeFromPipeline(String entryId) async {
+    final current = state.value ?? [];
+    state = AsyncValue.data(current.where((e) => e.id != entryId).toList());
   }
 }
 

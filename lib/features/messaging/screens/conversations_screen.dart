@@ -5,14 +5,12 @@ import 'package:timeago/timeago.dart' as timeago;
 import '../../../core/theme/app_theme.dart';
 import '../../../features/auth/providers/auth_provider.dart';
 import '../../../shared/models/message_model.dart';
+import '../../../shared/services/demo_data.dart';
 
 final conversationsProvider =
     FutureProvider<List<ConversationModel>>((ref) async {
-  final api = ref.watch(apiServiceProvider);
-  final data = await api.getConversations();
-  return data
-      .map((e) => ConversationModel.fromJson(e as Map<String, dynamic>))
-      .toList();
+  await Future.delayed(const Duration(milliseconds: 600));
+  return DemoData.conversations;
 });
 
 class ConversationsScreen extends ConsumerWidget {

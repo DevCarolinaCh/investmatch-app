@@ -20,12 +20,13 @@ import '../../features/payments/screens/payments_screen.dart';
 import '../../features/kyc/screens/kyc_screen.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
-  final authState = ref.watch(authStateProvider);
+  // Escucha tanto el estado del notifier (tras login) como el estado inicial
+  final authNotifier = ref.watch(authNotifierProvider);
 
   return GoRouter(
     initialLocation: '/splash',
     redirect: (context, state) {
-      final isLoggedIn = authState.valueOrNull != null;
+      final isLoggedIn = authNotifier.valueOrNull != null;
       final isSplash = state.matchedLocation == '/splash';
       final isAuth = state.matchedLocation.startsWith('/auth');
 
@@ -133,7 +134,7 @@ class MainShell extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final location = GoRouterState.of(context).matchedLocation;
-    final user = ref.watch(authStateProvider).valueOrNull;
+    final user = ref.watch(authNotifierProvider).valueOrNull;
     final isInvestor = user?.isInvestor ?? true;
 
     int currentIndex = 0;

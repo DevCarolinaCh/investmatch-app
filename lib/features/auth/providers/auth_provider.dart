@@ -11,6 +11,9 @@ final authServiceProvider = Provider<AuthService>((ref) {
 });
 
 // Estado de autenticación: null = no logueado, UserModel = logueado
+// Nota: en producción este provider maneja el estado inicial desde el token guardado.
+// En demo, el authNotifier es la fuente de verdad — este provider solo se usa
+// en el redirect del router.
 final authStateProvider = FutureProvider<UserModel?>((ref) async {
   final authService = ref.watch(authServiceProvider);
   final isLoggedIn = await authService.isLoggedIn;

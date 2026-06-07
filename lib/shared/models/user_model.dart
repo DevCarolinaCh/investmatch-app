@@ -89,6 +89,7 @@ class UserModel {
       };
 
   UserModel copyWith({
+    String? email,
     String? fullName,
     String? avatarUrl,
     KycStatus? kycStatus,
@@ -101,7 +102,7 @@ class UserModel {
   }) {
     return UserModel(
       id: id,
-      email: email,
+      email: email ?? this.email,
       fullName: fullName ?? this.fullName,
       avatarUrl: avatarUrl ?? this.avatarUrl,
       role: role,

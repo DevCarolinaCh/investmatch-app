@@ -2,9 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/theme/app_theme.dart';
-import '../../../features/auth/providers/auth_provider.dart';
-import '../../../shared/models/user_model.dart';
 import '../../../shared/models/project_model.dart';
+import '../../../shared/models/user_model.dart';
+import '../../auth/providers/auth_provider.dart';
 import '../../projects/providers/projects_provider.dart';
 
 class HomeScreen extends ConsumerWidget {
@@ -12,403 +12,257 @@ class HomeScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final user = ref.watch(authNotifierProvider).valueOrNull;
-    final highlightedProjects = ref.watch(highlightedProjectsProvider);
-    final recentProjects = ref.watch(recentProjectsProvider);
+    final authState = ref.watch(authNotifierProvider);
+    final user = authState.valueOrNull;
+
+    if (user == null) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+
+    return user.isInvestor
+        ? _InvestorHome(user: user)
+        : _FounderHome(user: user);
+  }
+}
+
+// ─── HOME INVERSOR ─────────────────────────────────────────────────────────────
+
+class _InvestorHome extends ConsumerWidget {
+  final UserModel user;
+  const _InvestorHome({required this.user});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final highlighted = ref.watch(highlightedProjectsProvider);
+    final recent = ref.watch(recentProjectsProvider);
 
     return Scaffold(
       backgroundColor: AppColors.background,
       body: CustomScrollView(
         slivers: [
-          // Header
-          SliverAppBar(
-            expandedHeight: 140,
-            floating: true,
-            pinned: false,
-            backgroundColor: AppColors.surface,
-            elevation: 0,
-            flexibleSpace: FlexibleSpaceBar(
-              background: Padding(
-                padding: const EdgeInsets.fromLTRB(20, 52, 20, 16),
-                child: Row(
+          _HomeAppBar(user: user),
+          SliverToBoxAdapter(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const SizedBox(height: 8),
+                _QuickActionsRow(),
+                const SizedBox(height: 24),
+                _SectionHeader(
+                  title: 'Destacados para vos',
+                  actionLabel: 'Ver todos',
+                  onAction: () => context.go('/search'),
+                ),
+                const SizedBox(height: 12),
+                highlighted.when(
+                  data: (projects) =>
+                      _HorizontalProjectCarousel(projects: projects),
+                  loading: () => _ProjectCarouselSkeleton(),
+                  error: (_, __) => const SizedBox(),
+                ),
+                const SizedBox(height: 24),
+                _SectionHeader(
+                  title: 'Proyectos recientes',
+                  actionLabel: 'Ver todos',
+                  onAction: () => context.go('/search'),
+                ),
+                const SizedBox(height: 12),
+                recent.when(
+                  data: (projects) => _ProjectList(projects: projects),
+                  loading: () => _ListSkeleton(),
+                  error: (_, __) => const SizedBox(),
+                ),
+                const SizedBox(height: 32),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── HOME FUNDADOR ─────────────────────────────────────────────────────────────
+
+class _FounderHome extends ConsumerWidget {
+  final UserModel user;
+  const _FounderHome({required this.user});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final highlighted = ref.watch(highlightedProjectsProvider);
+
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      body: CustomScrollView(
+        slivers: [
+          _HomeAppBar(user: user),
+          SliverToBoxAdapter(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const SizedBox(height: 16),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: _FounderStatsCard(user: user),
+                ),
+                const SizedBox(height: 24),
+                _SectionHeader(
+                  title: 'Inversores activos esta semana',
+                  actionLabel: 'Ver más',
+                  onAction: () => context.go('/search'),
+                ),
+                const SizedBox(height: 12),
+                highlighted.when(
+                  data: (projects) =>
+                      _HorizontalProjectCarousel(projects: projects),
+                  loading: () => _ProjectCarouselSkeleton(),
+                  error: (_, __) => const SizedBox(),
+                ),
+                const SizedBox(height: 24),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: _FounderTipsCard(),
+                ),
+                const SizedBox(height: 32),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── COMPONENTES ───────────────────────────────────────────────────────────────
+
+class _HomeAppBar extends ConsumerWidget {
+  final UserModel user;
+  const _HomeAppBar({required this.user});
+
+  String _greeting() {
+    final hour = DateTime.now().hour;
+    if (hour < 12) return 'Buenos días';
+    if (hour < 19) return 'Buenas tardes';
+    return 'Buenas noches';
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return SliverAppBar(
+      expandedHeight: 120,
+      floating: true,
+      snap: true,
+      backgroundColor: AppColors.background,
+      elevation: 0,
+      flexibleSpace: FlexibleSpaceBar(
+        background: Container(
+          color: AppColors.background,
+          padding: const EdgeInsets.fromLTRB(20, 60, 20, 12),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.end,
                   children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            _greeting(),
-                            style: Theme.of(context).textTheme.bodyMedium,
+                    Text(
+                      '${_greeting()}, ${user.fullName.split(' ').first} 👋',
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                            fontWeight: FontWeight.w600,
                           ),
-                          const SizedBox(height: 4),
-                          Text(
-                            user?.fullName.split(' ').first ?? 'Usuario',
-                            style: Theme.of(context).textTheme.headlineLarge,
-                          ),
-                          if (user?.kycStatus == KycStatus.pending ||
-                              user?.kycStatus == KycStatus.inProgress)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 6),
-                              child: _KycBanner(
-                                onTap: () => context.push('/kyc'),
-                              ),
-                            ),
-                        ],
-                      ),
                     ),
-                    GestureDetector(
-                      onTap: () => context.go('/profile'),
-                      child: _UserAvatar(user: user),
+                    const SizedBox(height: 2),
+                    Row(
+                      children: [
+                        Icon(
+                          user.isInvestor
+                              ? Icons.account_balance_wallet_outlined
+                              : Icons.rocket_launch_outlined,
+                          size: 14,
+                          color: AppColors.primary,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          user.isInvestor ? 'Inversor' : 'Emprendedor',
+                          style:
+                              Theme.of(context).textTheme.bodySmall?.copyWith(
+                                    color: AppColors.primary,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                        ),
+                        if (user.isVerified) ...[
+                          const SizedBox(width: 6),
+                          const Icon(
+                            Icons.verified_rounded,
+                            size: 14,
+                            color: AppColors.secondary,
+                          ),
+                        ],
+                      ],
                     ),
                   ],
                 ),
               ),
-            ),
-            actions: [
-              IconButton(
-                icon: const Icon(Icons.notifications_outlined),
-                onPressed: () {},
+              GestureDetector(
+                onTap: () => context.go('/profile'),
+                child: CircleAvatar(
+                  radius: 22,
+                  backgroundColor: AppColors.primary.withOpacity(0.15),
+                  child: Text(
+                    user.fullName.isNotEmpty
+                        ? user.fullName[0].toUpperCase()
+                        : 'U',
+                    style: const TextStyle(
+                      color: AppColors.primary,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 18,
+                    ),
+                  ),
+                ),
               ),
             ],
           ),
-
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Quick stats para emprendedores
-                  if (user?.isFounder == true) _FounderQuickStats(user: user),
-
-                  // Quick actions para inversores
-                  if (user?.isInvestor == true) _InvestorQuickActions(),
-
-                  const SizedBox(height: 24),
-
-                  // Proyectos destacados
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        'Destacados',
-                        style: Theme.of(context).textTheme.headlineSmall,
-                      ),
-                      TextButton(
-                        onPressed: () => context.push('/projects'),
-                        child: const Text('Ver todos'),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                ],
-              ),
-            ),
-          ),
-
-          // Carrusel horizontal de destacados
-          SliverToBoxAdapter(
-            child: SizedBox(
-              height: 220,
-              child: highlightedProjects.when(
-                loading: () => _HorizontalShimmer(),
-                error: (_, __) => const Center(
-                    child: Text('Error al cargar proyectos')),
-                data: (projects) => ListView.builder(
-                  scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                  itemCount: projects.length,
-                  itemBuilder: (context, index) => Padding(
-                    padding: EdgeInsets.only(
-                        right: index < projects.length - 1 ? 12 : 0),
-                    child: _FeaturedProjectCard(
-                      project: projects[index],
-                      onTap: () => context.push(
-                          '/projects/${projects[index].id}'),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-
-          // Recientes
-          SliverPadding(
-            padding: const EdgeInsets.fromLTRB(20, 24, 20, 0),
-            sliver: SliverToBoxAdapter(
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    'Recientes',
-                    style: Theme.of(context).textTheme.headlineSmall,
-                  ),
-                  TextButton(
-                    onPressed: () => context.push('/search'),
-                    child: const Text('Explorar'),
-                  ),
-                ],
-              ),
-            ),
-          ),
-
-          recentProjects.when(
-            loading: () => const SliverToBoxAdapter(
-              child: Center(child: CircularProgressIndicator()),
-            ),
-            error: (_, __) => const SliverToBoxAdapter(child: SizedBox()),
-            data: (projects) => SliverPadding(
-              padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
-              sliver: SliverList(
-                delegate: SliverChildBuilderDelegate(
-                  (context, index) => Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: _ProjectListTile(
-                      project: projects[index],
-                      onTap: () => context
-                          .push('/projects/${projects[index].id}'),
-                    ),
-                  ),
-                  childCount: projects.length,
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  String _greeting() {
-    final hour = DateTime.now().hour;
-    if (hour < 12) return '¡Buenos días!';
-    if (hour < 18) return '¡Buenas tardes!';
-    return '¡Buenas noches!';
-  }
-}
-
-class _UserAvatar extends StatelessWidget {
-  final UserModel? user;
-  const _UserAvatar({this.user});
-
-  @override
-  Widget build(BuildContext context) {
-    return Stack(
-      children: [
-        CircleAvatar(
-          radius: 24,
-          backgroundColor: AppColors.primaryLight,
-          backgroundImage: user?.avatarUrl != null
-              ? NetworkImage(user!.avatarUrl!)
-              : null,
-          child: user?.avatarUrl == null
-              ? Text(
-                  (user?.fullName.isNotEmpty == true)
-                      ? user!.fullName[0].toUpperCase()
-                      : 'U',
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.primary,
-                  ),
-                )
-              : null,
-        ),
-        if (user?.isVerified == true)
-          Positioned(
-            right: 0,
-            bottom: 0,
-            child: Container(
-              width: 14,
-              height: 14,
-              decoration: BoxDecoration(
-                color: AppColors.verified,
-                shape: BoxShape.circle,
-                border: Border.all(color: Colors.white, width: 2),
-              ),
-              child: const Icon(Icons.check, size: 8, color: Colors.white),
-            ),
-          ),
-      ],
-    );
-  }
-}
-
-class _KycBanner extends StatelessWidget {
-  final VoidCallback onTap;
-  const _KycBanner({required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-        decoration: BoxDecoration(
-          color: AppColors.warningLight,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: AppColors.warning.withOpacity(0.3)),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.warning_amber_outlined,
-                size: 14, color: AppColors.warning),
-            const SizedBox(width: 6),
-            const Text(
-              'Verificar identidad →',
-              style: TextStyle(
-                fontSize: 12,
-                color: AppColors.warning,
-                fontWeight: FontWeight.w600,
-                fontFamily: 'Inter',
-              ),
-            ),
-          ],
         ),
       ),
+      actions: const [SizedBox(width: 0)],
     );
   }
 }
 
-class _FounderQuickStats extends StatelessWidget {
-  final UserModel? user;
-  const _FounderQuickStats({this.user});
-
+class _QuickActionsRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text('Tu proyecto',
-            style: Theme.of(context).textTheme.headlineSmall),
-        const SizedBox(height: 12),
-        Row(
-          children: [
-            Expanded(
-              child: _StatCard(
-                label: 'Vistas',
-                value: '124',
-                icon: Icons.visibility_outlined,
-                color: AppColors.primary,
-              ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: _StatCard(
-                label: 'Contactos',
-                value: '8',
-                icon: Icons.person_add_outlined,
-                color: AppColors.secondary,
-              ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: _StatCard(
-                label: 'Guardados',
-                value: '15',
-                icon: Icons.bookmark_outline,
-                color: AppColors.accent,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 24),
-      ],
-    );
-  }
-}
-
-class _InvestorQuickActions extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text('Accesos rápidos',
-            style: Theme.of(context).textTheme.headlineSmall),
-        const SizedBox(height: 12),
-        Row(
-          children: [
-            Expanded(
-              child: _QuickActionCard(
-                label: 'Mi Pipeline',
-                icon: Icons.account_tree_outlined,
-                color: AppColors.primary,
-                onTap: () => context.go('/pipeline'),
-              ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: _QuickActionCard(
-                label: 'Buscar',
-                icon: Icons.search,
-                color: AppColors.secondary,
-                onTap: () => context.go('/search'),
-              ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: _QuickActionCard(
-                label: 'Agenda',
-                icon: Icons.calendar_today_outlined,
-                color: AppColors.accent,
-                onTap: () => context.push('/agenda'),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 24),
-      ],
-    );
-  }
-}
-
-class _StatCard extends StatelessWidget {
-  final String label;
-  final String value;
-  final IconData icon;
-  final Color color;
-
-  const _StatCard({
-    required this.label,
-    required this.value,
-    required this.icon,
-    required this.color,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.08),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: color.withOpacity(0.2)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: Row(
         children: [
-          Icon(icon, size: 20, color: color),
-          const SizedBox(height: 8),
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: 22,
-              fontWeight: FontWeight.w700,
-              color: color,
-              fontFamily: 'Inter',
-            ),
+          _QuickAction(
+            icon: Icons.search_rounded,
+            label: 'Buscar',
+            color: AppColors.primary,
+            onTap: () => context.go('/search'),
           ),
-          Text(
-            label,
-            style: const TextStyle(
-              fontSize: 11,
-              color: AppColors.textSecondary,
-              fontFamily: 'Inter',
-            ),
+          const SizedBox(width: 12),
+          _QuickAction(
+            icon: Icons.view_kanban_outlined,
+            label: 'Pipeline',
+            color: const Color(0xFF7C3AED),
+            onTap: () => context.go('/pipeline'),
+          ),
+          const SizedBox(width: 12),
+          _QuickAction(
+            icon: Icons.chat_bubble_outline_rounded,
+            label: 'Mensajes',
+            color: AppColors.secondary,
+            onTap: () => context.go('/messages'),
+          ),
+          const SizedBox(width: 12),
+          _QuickAction(
+            icon: Icons.calendar_today_outlined,
+            label: 'Agenda',
+            color: const Color(0xFFEA580C),
+            onTap: () => context.go('/agenda'),
           ),
         ],
       ),
@@ -416,48 +270,269 @@ class _StatCard extends StatelessWidget {
   }
 }
 
-class _QuickActionCard extends StatelessWidget {
-  final String label;
+class _QuickAction extends StatelessWidget {
   final IconData icon;
+  final String label;
   final Color color;
   final VoidCallback onTap;
 
-  const _QuickActionCard({
-    required this.label,
+  const _QuickAction({
     required this.icon,
+    required this.label,
     required this.color,
     required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
+    return Expanded(
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 14),
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.08),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: color.withOpacity(0.15)),
+          ),
+          child: Column(
+            children: [
+              Icon(icon, color: color, size: 22),
+              const SizedBox(height: 6),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: color,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SectionHeader extends StatelessWidget {
+  final String title;
+  final String actionLabel;
+  final VoidCallback onAction;
+
+  const _SectionHeader({
+    required this.title,
+    required this.actionLabel,
+    required this.onAction,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            title,
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+          ),
+          TextButton(
+            onPressed: onAction,
+            style: TextButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            child: const Text(
+              'Ver todos',
+              style: TextStyle(
+                color: AppColors.primary,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── CAROUSEL ──────────────────────────────────────────────────────────────────
+
+class _HorizontalProjectCarousel extends StatelessWidget {
+  final List<ProjectModel> projects;
+  const _HorizontalProjectCarousel({required this.projects});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 230,
+      child: ListView.builder(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 20),
+        itemCount: projects.length,
+        itemBuilder: (context, i) => _ProjectCard(project: projects[i]),
+      ),
+    );
+  }
+}
+
+Color _verticalColor(String vertical) {
+  switch (vertical) {
+    case 'Agtech':
+      return const Color(0xFF059669);
+    case 'Fintech':
+      return const Color(0xFF2563EB);
+    case 'Edtech':
+      return const Color(0xFF7C3AED);
+    case 'Healthtech':
+      return const Color(0xFFDC2626);
+    case 'Proptech':
+      return const Color(0xFFEA580C);
+    case 'Logística':
+      return const Color(0xFFF59E0B);
+    default:
+      return AppColors.primary;
+  }
+}
+
+class _ProjectCard extends StatelessWidget {
+  final ProjectModel project;
+  const _ProjectCard({required this.project});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = _verticalColor(project.vertical);
     return GestureDetector(
-      onTap: onTap,
+      onTap: () => context.push('/projects/${project.id}'),
       child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 16),
+        width: 220,
+        margin: const EdgeInsets.only(right: 12),
         decoration: BoxDecoration(
-          color: AppColors.surface,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: AppColors.border),
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.07),
+              blurRadius: 12,
+              offset: const Offset(0, 4),
+            ),
+          ],
         ),
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Container(
-              width: 40,
-              height: 40,
+              height: 80,
               decoration: BoxDecoration(
-                color: color.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(10),
+                gradient: LinearGradient(
+                  colors: [color, color.withOpacity(0.7)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(16),
+                  topRight: Radius.circular(16),
+                ),
               ),
-              child: Icon(icon, color: color, size: 20),
+              child: Stack(
+                children: [
+                  Center(
+                    child: Text(
+                      project.title[0],
+                      style: const TextStyle(
+                        fontSize: 36,
+                        fontWeight: FontWeight.w800,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                  if (project.isHighlighted)
+                    Positioned(
+                      top: 8,
+                      right: 8,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.25),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.star_rounded,
+                                size: 11, color: Colors.white),
+                            SizedBox(width: 2),
+                            Text(
+                              'Destacado',
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: Colors.white,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                ],
+              ),
             ),
-            const SizedBox(height: 8),
-            Text(
-              label,
-              style: const TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
-                fontFamily: 'Inter',
+            Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    project.title,
+                    style: const TextStyle(
+                        fontWeight: FontWeight.w700, fontSize: 15),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    project.description,
+                    style: TextStyle(
+                        fontSize: 12, color: Colors.grey[600], height: 1.3),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      _Chip(label: project.vertical, color: color),
+                      const SizedBox(width: 6),
+                      _Chip(label: project.stage, color: Colors.grey[700]!),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Icon(Icons.remove_red_eye_outlined,
+                          size: 13, color: Colors.grey[500]),
+                      const SizedBox(width: 4),
+                      Text(
+                        '${project.metrics?.uniqueViews ?? 0} vistas',
+                        style:
+                            TextStyle(fontSize: 11, color: Colors.grey[500]),
+                      ),
+                      const Spacer(),
+                      Text(
+                        project.ticketSeeking,
+                        style: TextStyle(
+                            fontSize: 11,
+                            color: color,
+                            fontWeight: FontWeight.w600),
+                      ),
+                    ],
+                  ),
+                ],
               ),
             ),
           ],
@@ -467,22 +542,61 @@ class _QuickActionCard extends StatelessWidget {
   }
 }
 
-class _FeaturedProjectCard extends StatelessWidget {
-  final ProjectModel project;
-  final VoidCallback onTap;
-
-  const _FeaturedProjectCard({required this.project, required this.onTap});
+class _Chip extends StatelessWidget {
+  final String label;
+  final Color color;
+  const _Chip({required this.label, required this.color});
 
   @override
   Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+            fontSize: 10, fontWeight: FontWeight.w600, color: color),
+      ),
+    );
+  }
+}
+
+// ─── LISTA RECIENTES ───────────────────────────────────────────────────────────
+
+class _ProjectList extends StatelessWidget {
+  final List<ProjectModel> projects;
+  const _ProjectList({required this.projects});
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      itemCount: projects.length,
+      itemBuilder: (context, i) => _ProjectListTile(project: projects[i]),
+    );
+  }
+}
+
+class _ProjectListTile extends StatelessWidget {
+  final ProjectModel project;
+  const _ProjectListTile({required this.project});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = _verticalColor(project.vertical);
     return GestureDetector(
-      onTap: onTap,
+      onTap: () => context.push('/projects/${project.id}'),
       child: Container(
-        width: 240,
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: AppColors.surface,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: AppColors.border),
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(14),
           boxShadow: [
             BoxShadow(
               color: Colors.black.withOpacity(0.04),
@@ -491,66 +605,74 @@ class _FeaturedProjectCard extends StatelessWidget {
             ),
           ],
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        child: Row(
           children: [
-            // Imagen
-            ClipRRect(
-              borderRadius:
-                  const BorderRadius.vertical(top: Radius.circular(16)),
-              child: project.imageUrls.isNotEmpty
-                  ? Image.network(
-                      project.imageUrls.first,
-                      height: 110,
-                      width: double.infinity,
-                      fit: BoxFit.cover,
-                    )
-                  : Container(
-                      height: 110,
-                      color: AppColors.primaryLight,
-                      child: const Center(
-                        child: Icon(Icons.rocket_launch_outlined,
-                            size: 40, color: AppColors.primary),
-                      ),
-                    ),
+            Container(
+              width: 52,
+              height: 52,
+              decoration: BoxDecoration(
+                color: color.withOpacity(0.12),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Center(
+                child: Text(
+                  project.title[0],
+                  style: TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w800,
+                      color: color),
+                ),
+              ),
             ),
-            Padding(
-              padding: const EdgeInsets.all(12),
+            const SizedBox(width: 14),
+            Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
                     children: [
-                      _VerticalChip(vertical: project.vertical),
-                      const Spacer(),
-                      if (project.isHighlighted)
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 6, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: AppColors.warning.withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          child: const Text('⭐ Destacado',
-                              style: TextStyle(
-                                  fontSize: 10,
-                                  color: AppColors.warning,
-                                  fontFamily: 'Inter')),
+                      Expanded(
+                        child: Text(
+                          project.title,
+                          style: const TextStyle(
+                              fontWeight: FontWeight.w700, fontSize: 15),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
+                      ),
+                      Text(
+                        project.ticketSeeking,
+                        style: TextStyle(
+                            fontSize: 12,
+                            color: color,
+                            fontWeight: FontWeight.w700),
+                      ),
                     ],
                   ),
-                  const SizedBox(height: 6),
+                  const SizedBox(height: 4),
                   Text(
-                    project.title,
-                    style: Theme.of(context).textTheme.titleMedium,
-                    maxLines: 1,
+                    project.description,
+                    style: TextStyle(
+                        fontSize: 12, color: Colors.grey[600], height: 1.3),
+                    maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                   ),
-                  const SizedBox(height: 2),
-                  Text(
-                    project.ticketSeeking,
-                    style: Theme.of(context).textTheme.bodySmall,
-                    maxLines: 1,
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      _Chip(label: project.vertical, color: color),
+                      const SizedBox(width: 6),
+                      _Chip(label: project.stage, color: Colors.grey[600]!),
+                      const Spacer(),
+                      Icon(Icons.location_on_outlined,
+                          size: 12, color: Colors.grey[400]),
+                      const SizedBox(width: 2),
+                      Text(
+                        project.province.split('(').first.trim(),
+                        style: TextStyle(
+                            fontSize: 11, color: Colors.grey[500]),
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -562,105 +684,223 @@ class _FeaturedProjectCard extends StatelessWidget {
   }
 }
 
-class _ProjectListTile extends StatelessWidget {
-  final ProjectModel project;
-  final VoidCallback onTap;
+// ─── FOUNDER WIDGETS ───────────────────────────────────────────────────────────
 
-  const _ProjectListTile({required this.project, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: AppColors.surface,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: AppColors.border),
-        ),
-        child: Row(
-          children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(10),
-              child: project.imageUrls.isNotEmpty
-                  ? Image.network(
-                      project.imageUrls.first,
-                      width: 56,
-                      height: 56,
-                      fit: BoxFit.cover,
-                    )
-                  : Container(
-                      width: 56,
-                      height: 56,
-                      color: AppColors.primaryLight,
-                      child: const Icon(Icons.business_outlined,
-                          color: AppColors.primary),
-                    ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(project.title,
-                      style: Theme.of(context).textTheme.titleMedium),
-                  const SizedBox(height: 2),
-                  Text(
-                    '${project.stage} · ${project.province}',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                  const SizedBox(height: 4),
-                  _VerticalChip(vertical: project.vertical),
-                ],
-              ),
-            ),
-            const Icon(Icons.chevron_right, color: AppColors.textTertiary),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _VerticalChip extends StatelessWidget {
-  final String vertical;
-  const _VerticalChip({required this.vertical});
+class _FounderStatsCard extends StatelessWidget {
+  final UserModel user;
+  const _FounderStatsCard({required this.user});
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: AppColors.primaryLight,
-        borderRadius: BorderRadius.circular(6),
+        gradient: const LinearGradient(
+          colors: [AppColors.primary, Color(0xFF1D4ED8)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.primary.withOpacity(0.3),
+            blurRadius: 16,
+            offset: const Offset(0, 6),
+          ),
+        ],
       ),
-      child: Text(
-        vertical,
-        style: const TextStyle(
-          fontSize: 10,
-          fontWeight: FontWeight.w600,
-          color: AppColors.primary,
-          fontFamily: 'Inter',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  user.founderProfile?.companyName ?? 'Mi proyecto',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13,
+                  ),
+                ),
+              ),
+              const Spacer(),
+              const Icon(Icons.trending_up_rounded,
+                  color: Colors.white, size: 20),
+            ],
+          ),
+          const SizedBox(height: 16),
+          const Text(
+            'Esta semana',
+            style: TextStyle(color: Colors.white70, fontSize: 12),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: const [
+              _StatItem(
+                  label: 'Vistas',
+                  value: '342',
+                  icon: Icons.remove_red_eye_outlined),
+              _StatItem(
+                  label: 'Contactos',
+                  value: '14',
+                  icon: Icons.people_outline),
+              _StatItem(
+                  label: 'Guardados',
+                  value: '28',
+                  icon: Icons.bookmark_outline),
+              _StatItem(
+                  label: 'Reuniones',
+                  value: '5',
+                  icon: Icons.calendar_today_outlined),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _StatItem extends StatelessWidget {
+  final String label;
+  final String value;
+  final IconData icon;
+
+  const _StatItem({
+    required this.label,
+    required this.value,
+    required this.icon,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Column(
+        children: [
+          Icon(icon, color: Colors.white70, size: 18),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 20,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          Text(
+            label,
+            style: const TextStyle(color: Colors.white60, fontSize: 11),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FounderTipsCard extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.secondary.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.secondary.withOpacity(0.2)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.lightbulb_outline,
+                  color: AppColors.secondary, size: 18),
+              const SizedBox(width: 8),
+              Text(
+                'Tips para conseguir inversión',
+                style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      color: AppColors.secondary,
+                      fontWeight: FontWeight.w700,
+                    ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          ...[
+            'Completá tu perfil al 100% para aparecer primero',
+            'Respondé mensajes en menos de 24 horas',
+            'Actualizá tus métricas de MRR mensualmente',
+          ].map(
+            (tip) => Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.check_circle_outline,
+                      size: 14,
+                      color: AppColors.secondary.withOpacity(0.7)),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      tip,
+                      style: TextStyle(fontSize: 13, color: Colors.grey[700]),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── SKELETONS ─────────────────────────────────────────────────────────────────
+
+class _ProjectCarouselSkeleton extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 230,
+      child: ListView.builder(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 20),
+        itemCount: 3,
+        itemBuilder: (_, __) => Container(
+          width: 220,
+          margin: const EdgeInsets.only(right: 12),
+          decoration: BoxDecoration(
+            color: Colors.grey[200],
+            borderRadius: BorderRadius.circular(16),
+          ),
         ),
       ),
     );
   }
 }
 
-class _HorizontalShimmer extends StatelessWidget {
+class _ListSkeleton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    return ListView.builder(
-      scrollDirection: Axis.horizontal,
+    return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
-      itemCount: 3,
-      itemBuilder: (_, i) => Container(
-        width: 240,
-        margin: EdgeInsets.only(right: i < 2 ? 12 : 0),
-        decoration: BoxDecoration(
-          color: AppColors.surfaceVariant,
-          borderRadius: BorderRadius.circular(16),
+      child: Column(
+        children: List.generate(
+          3,
+          (_) => Container(
+            height: 90,
+            margin: const EdgeInsets.only(bottom: 12),
+            decoration: BoxDecoration(
+              color: Colors.grey[200],
+              borderRadius: BorderRadius.circular(14),
+            ),
+          ),
         ),
       ),
     );

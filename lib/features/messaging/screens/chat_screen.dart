@@ -1,21 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:socket_io_client/socket_io_client.dart' as io;
 import '../../../core/constants/app_constants.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../features/auth/providers/auth_provider.dart';
 import '../../../shared/models/message_model.dart';
 import '../../../shared/models/user_model.dart';
-
-final chatMessagesProvider =
-    FutureProvider.family<List<MessageModel>, String>((ref, conversationId) async {
-  final api = ref.watch(apiServiceProvider);
-  final data = await api.getMessages(conversationId);
-  return data
-      .map((e) => MessageModel.fromJson(e as Map<String, dynamic>))
-      .toList();
-});
+import '../../../shared/services/demo_data.dart';
 
 class ChatScreen extends ConsumerStatefulWidget {
   final String conversationId;
@@ -35,62 +26,19 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   final _messageCtrl = TextEditingController();
   final _scrollCtrl = ScrollController();
   final _messages = <MessageModel>[];
-  late io.Socket _socket;
-  bool _isConnected = false;
   bool _isTyping = false;
   String? _remoteTyping;
 
   @override
   void initState() {
     super.initState();
-    _connectSocket();
     _loadMessages();
   }
 
-  void _connectSocket() {
-    _socket = io.io(
-      AppConstants.baseUrl.replaceFirst('/v1', ''),
-      io.OptionBuilder()
-          .setTransports(['websocket'])
-          .enableAutoConnect()
-          .build(),
-    );
-
-    _socket.onConnect((_) {
-      setState(() => _isConnected = true);
-      _socket.emit('join', {'conversationId': widget.conversationId});
-    });
-
-    _socket.on(AppConstants.wsEventMessage, (data) {
-      final msg = MessageModel.fromJson(data as Map<String, dynamic>);
-      setState(() {
-        _messages.add(msg);
-        _remoteTyping = null;
-      });
-      _scrollToBottom();
-    });
-
-    _socket.on(AppConstants.wsEventTyping, (data) {
-      final userId = data['userId'] as String?;
-      final currentUserId = ref.read(authNotifierProvider).valueOrNull?.id;
-      if (userId != currentUserId) {
-        setState(() => _remoteTyping = data['name'] as String?);
-      }
-    });
-
-    _socket.onDisconnect((_) {
-      setState(() => _isConnected = false);
-    });
-  }
-
   Future<void> _loadMessages() async {
-    final api = ref.read(apiServiceProvider);
-    final data = await api.getMessages(widget.conversationId);
-    setState(() {
-      _messages.addAll(
-        data.map((e) => MessageModel.fromJson(e as Map<String, dynamic>)),
-      );
-    });
+    await Future.delayed(const Duration(milliseconds: 400));
+    final demoMessages = DemoData.getMessages(widget.conversationId);
+    setState(() => _messages.addAll(demoMessages));
     await Future.delayed(const Duration(milliseconds: 100));
     _scrollToBottom();
   }
@@ -108,43 +56,54 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   Future<void> _sendMessage() async {
     final text = _messageCtrl.text.trim();
     if (text.isEmpty) return;
-
     _messageCtrl.clear();
     setState(() => _isTyping = false);
 
-    final api = ref.read(apiServiceProvider);
-    final data = await api.sendMessage(widget.conversationId, text);
-    final msg = MessageModel.fromJson(data);
-
-    _socket.emit(AppConstants.wsEventMessage, {
-      'conversationId': widget.conversationId,
-      'message': msg.toJson(),
-    });
+    final user = ref.read(authNotifierProvider).valueOrNull;
+    final msg = MessageModel(
+      id: 'msg_${DateTime.now().millisecondsSinceEpoch}',
+      conversationId: widget.conversationId,
+      senderId: user?.id ?? 'investor_001',
+      senderName: user?.fullName ?? 'Yo',
+      content: text,
+      type: MessageType.text,
+      status: MessageStatus.sent,
+      createdAt: DateTime.now(),
+    );
 
     setState(() => _messages.add(msg));
+    _scrollToBottom();
+
+    // Simular respuesta automática en demo
+    await Future.delayed(const Duration(seconds: 2));
+    if (!mounted) return;
+    setState(() => _remoteTyping = 'María González');
+    await Future.delayed(const Duration(seconds: 1));
+    if (!mounted) return;
+    setState(() {
+      _remoteTyping = null;
+      _messages.add(MessageModel(
+        id: 'msg_auto_${DateTime.now().millisecondsSinceEpoch}',
+        conversationId: widget.conversationId,
+        senderId: 'founder_001',
+        senderName: 'María González',
+        content: '¡Gracias por tu mensaje! Te respondo a la brevedad.',
+        type: MessageType.text,
+        status: MessageStatus.delivered,
+        createdAt: DateTime.now(),
+      ));
+    });
     _scrollToBottom();
   }
 
   void _onTypingChanged(String value) {
-    final wasTyping = _isTyping;
     _isTyping = value.isNotEmpty;
-
-    if (_isTyping != wasTyping) {
-      final user = ref.read(authNotifierProvider).valueOrNull;
-      _socket.emit(AppConstants.wsEventTyping, {
-        'conversationId': widget.conversationId,
-        'userId': user?.id,
-        'name': user?.fullName,
-        'isTyping': _isTyping,
-      });
-    }
   }
 
   @override
   void dispose() {
     _messageCtrl.dispose();
     _scrollCtrl.dispose();
-    _socket.disconnect();
     super.dispose();
   }
 
@@ -166,14 +125,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 Container(
                   width: 7,
                   height: 7,
-                  decoration: BoxDecoration(
-                    color: _isConnected ? AppColors.secondary : AppColors.error,
+                  decoration: const BoxDecoration(
+                    color: AppColors.secondary,
                     shape: BoxShape.circle,
                   ),
                 ),
                 const SizedBox(width: 4),
-                Text(
-                  _isConnected ? 'Conectado' : 'Reconectando...',
+                const Text(
+                  'Demo',
                   style: const TextStyle(
                     fontSize: 11,
                     color: AppColors.textSecondary,

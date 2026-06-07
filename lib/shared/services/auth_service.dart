@@ -1,22 +1,33 @@
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:google_sign_in/google_sign_in.dart';
 import '../../core/constants/app_constants.dart';
 import '../models/user_model.dart';
 import 'api_service.dart';
+import 'demo_data.dart';
 
 class AuthService {
   final ApiService _api;
   final FlutterSecureStorage _storage = const FlutterSecureStorage();
-  final GoogleSignIn _googleSignIn = GoogleSignIn(scopes: ['email', 'profile']);
+
+  // Demo mode: si la URL de la API no está configurada, todo es demo
+  static const bool _isDemoMode = true;
 
   AuthService(this._api);
 
   Future<bool> get isLoggedIn async {
+    if (_isDemoMode) {
+      final token = await _storage.read(key: AppConstants.kAccessToken);
+      return token == 'demo_token';
+    }
     final token = await _storage.read(key: AppConstants.kAccessToken);
     return token != null;
   }
 
   Future<UserModel?> getCurrentUser() async {
+    if (_isDemoMode) {
+      final role = await _storage.read(key: AppConstants.kUserRole);
+      if (role == 'founder') return DemoData.demoFounder;
+      return DemoData.demoInvestor;
+    }
     try {
       final data = await _api.getMe();
       return UserModel.fromJson(data);
@@ -29,6 +40,16 @@ class AuthService {
     required String email,
     required String password,
   }) async {
+    if (_isDemoMode) {
+      await Future.delayed(const Duration(milliseconds: 900));
+      // Cualquier email/password funciona en modo demo
+      final isFounder = email.contains('fundador') ||
+          email.contains('founder') ||
+          email.contains('emprendedor');
+      final user = isFounder ? DemoData.demoFounder : DemoData.demoInvestor;
+      await _saveDemoSession(user);
+      return AuthResult.success(user);
+    }
     try {
       final data = await _api.login(email: email, password: password);
       await _saveTokens(data);
@@ -45,6 +66,14 @@ class AuthService {
     required String fullName,
     required UserRole role,
   }) async {
+    if (_isDemoMode) {
+      await Future.delayed(const Duration(milliseconds: 1200));
+      final user = role == UserRole.founder
+          ? DemoData.demoFounder.copyWith(email: email, fullName: fullName)
+          : DemoData.demoInvestor.copyWith(email: email, fullName: fullName);
+      await _saveDemoSession(user);
+      return AuthResult.success(user);
+    }
     try {
       final data = await _api.register(
         email: email,
@@ -61,30 +90,20 @@ class AuthService {
   }
 
   Future<AuthResult> signInWithGoogle() async {
-    try {
-      final account = await _googleSignIn.signIn();
-      if (account == null) return AuthResult.error('Inicio con Google cancelado');
-
-      final auth = await account.authentication;
-      final idToken = auth.idToken;
-      if (idToken == null) return AuthResult.error('Error de autenticación con Google');
-
-      final data = await _api.loginWithGoogle(idToken);
-      await _saveTokens(data);
-      final user = UserModel.fromJson(data['user'] as Map<String, dynamic>);
-      return AuthResult.success(user);
-    } on Exception catch (e) {
-      return AuthResult.error(_parseError(e));
-    }
+    return AuthResult.error('Google Sign-In disponible en la app móvil');
   }
 
   Future<void> logout() async {
-    try {
-      await _api.logout();
-      await _googleSignIn.signOut();
-    } finally {
-      await _storage.deleteAll();
-    }
+    await _storage.deleteAll();
+  }
+
+  Future<void> _saveDemoSession(UserModel user) async {
+    await Future.wait([
+      _storage.write(key: AppConstants.kAccessToken, value: 'demo_token'),
+      _storage.write(key: AppConstants.kRefreshToken, value: 'demo_refresh'),
+      _storage.write(key: AppConstants.kUserId, value: user.id),
+      _storage.write(key: AppConstants.kUserRole, value: user.role.name),
+    ]);
   }
 
   Future<void> _saveTokens(Map<String, dynamic> data) async {
